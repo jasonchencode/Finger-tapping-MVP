@@ -4,6 +4,11 @@ import cv2
 import mediapipe as mp
 import matplotlib.pyplot as plt
 
+
+# Annotate hands
+mp_drawing = mp.solutions.drawing_utils
+mp_hands = mp.solutions.hands
+
 # Use OpenCV’s VideoCapture to load the input video.
 video_path = "../data/CONTROL01_DCHA copy.mp4"
 cap = cv2.VideoCapture(video_path)
@@ -103,12 +108,43 @@ if not out.isOpened():
 
 frame_number = 0
 
+HAND_CONNECTIONS = [
+    (0, 1), (1, 2), (2, 3), (3, 4),
+    (0, 5), (5, 6), (6, 7), (7, 8),
+    (5, 9), (9, 10), (10, 11), (11, 12),
+    (9, 13), (13, 14), (14, 15), (15, 16),
+    (13, 17), (17, 18), (18, 19), (19, 20),
+    (0, 17)
+]
+
 while True:
     ret, frame = cap.read()
 
     if not ret:
         break
+        # --------------------------------------------------
+    # 1. Draw MediaPipe landmarks
+    # --------------------------------------------------
 
+    frame_landmarks = results[frame_number]
+
+    for hand_landmarks in frame_landmarks:
+      points = []
+
+      for i, landmark in enumerate(hand_landmarks):
+          x = int(landmark.x * width)
+          y = int(landmark.y * height)
+          points.append((x, y))
+
+          # Make thumb tip (4) and index tip (8) red
+          if i == 4 or i == 8:
+              cv2.circle(frame, (x, y), 7, (0, 0, 255), -1)
+          else:
+              cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)
+
+      # Draw hand connections
+      for start, end in HAND_CONNECTIONS:
+          cv2.line(frame, points[start], points[end], (0, 255, 0), 2)
     # --------------------------------------------------
     # 1. Create blank area for the graph
     # --------------------------------------------------
