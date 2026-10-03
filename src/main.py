@@ -1,8 +1,8 @@
 import numpy as np
+import math
 import cv2
 import mediapipe as mp
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
+import matplotlib.pyplot as plt
 
 # Use OpenCV’s VideoCapture to load the input video.
 video_path = "../data/CONTROL01_DCHA copy.mp4"
@@ -18,8 +18,11 @@ VisionRunningMode = mp.tasks.vision.RunningMode
 
 # Create a hand landmarker instance with the video mode:
 options = HandLandmarkerOptions(
-    base_options=BaseOptions(model_asset_path='./hand_landmarker.task'),
+    base_options=BaseOptions(model_asset_path='../hand_landmarker.task'),
     running_mode=VisionRunningMode.VIDEO)
+
+results = []
+
 with HandLandmarker.create_from_options(options) as landmarker:
   # The landmarker is initialized. Use it here.
   # ...
@@ -39,4 +42,33 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
   
     hand_landmarker_result = landmarker.detect_for_video(mp_image, int(counter*1000/fps))
+    results.append(hand_landmarker_result.hand_landmarks)
     counter+=1
+
+distances = []
+
+# for r in results:
+#    print(r)
+
+def distance(r):
+  if len(r)==0:
+     return 0
+  x_thumb = r[0][4].x
+  y_thumb = r[0][4].y
+  z_thumb = r[0][4].z
+
+  x_index = r[0][8].x
+  y_index = r[0][8].y
+  z_index = r[0][8].z
+
+  d = math.sqrt((x_thumb-x_index)**2 + (y_thumb-y_index)**2 + (z_thumb+z_index)**2)
+
+  return d
+
+print(distance(results[200]))
+
+for r in results:
+   distances.append(distance(r))
+
+plt.scatter(np.arange(len(distances)), distances)
+plt.show()
