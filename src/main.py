@@ -61,7 +61,7 @@ def distance(r):
   y_index = r[0][8].y
   z_index = r[0][8].z
 
-  d = math.sqrt((x_thumb-x_index)**2 + (y_thumb-y_index)**2 + (z_thumb+z_index)**2)
+  d = math.sqrt((x_thumb-x_index)**2 + (y_thumb-y_index)**2)
 
   return d
 
@@ -70,5 +70,5 @@ print(distance(results[200]))
 for r in results:
    distances.append(distance(r))
 
-plt.scatter(np.arange(len(distances)), distances)
+plt.plot(np.arange(len(distances)), distances)
 plt.show()
