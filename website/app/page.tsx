@@ -317,6 +317,20 @@ export default function Home() {
   const averageVisibleAmplitude =
     meanTapHeight(visibleTapHeights);
 
+  // Restart the Taps card pulse whenever the count ticks up during
+  // playback.
+  const [tapsPulseKey, setTapsPulseKey] = useState(0);
+
+  const previousTapsRef = useRef(currentTaps);
+
+  useEffect(() => {
+    if (currentTaps > previousTapsRef.current) {
+      setTapsPulseKey((key) => key + 1);
+    }
+
+    previousTapsRef.current = currentTaps;
+  }, [currentTaps]);
+
   return (
     <main className="min-h-screen bg-[#fafaff] px-8 py-12 text-[#26165f]">
       
@@ -370,6 +384,7 @@ export default function Home() {
                 <MovementGraph
                   distances={data.distances}
                   fps={data.fps}
+                  tapFrames={sortedTapFrames}
                   currentTime={currentTime}
                   isDragging={isDragging}
                   onPointerDown={handleGraphPointerDown}
@@ -380,9 +395,13 @@ export default function Home() {
             </div>
 
             <div className="mt-4 flex justify-between text-sm text-[#68657a]">
-              <span>Thumb ↔ Index distance</span>
               <span>
+                Thumb ↔ Index distance{" "}
                 {currentDistance.toFixed(2)}
+              </span>
+              <span>
+                {currentTaps} taps @ {" "}
+                {currentTime.toFixed(1)}s
               </span>
             </div>
           </div>
@@ -394,6 +413,7 @@ export default function Home() {
           <Metric
             label="Taps"
             value={String(currentTaps)}
+            pulseKey={tapsPulseKey}
           />
 
           <Metric
@@ -429,12 +449,19 @@ export default function Home() {
 function Metric({
   label,
   value,
+  pulseKey,
 }: {
   label: string;
   value: string;
+  pulseKey?: number;
 }) {
   return (
-    <div className="rounded-2xl border border-[#dddaf0] bg-white p-6 shadow-sm">
+    <div
+      key={pulseKey}
+      className={`rounded-2xl border border-[#dddaf0] bg-white p-6 shadow-sm ${
+        pulseKey ? "tap-pulse" : ""
+      }`}
+    >
       <p className="text-sm font-medium text-[#77738c]">
         {label}
       </p>
@@ -450,6 +477,7 @@ function Metric({
 function MovementGraph({
     distances,
     fps,
+    tapFrames,
     currentTime,
     isDragging,
     onPointerDown,
@@ -458,6 +486,7 @@ function MovementGraph({
   }: {
     distances: number[];
     fps: number;
+    tapFrames: number[];
     currentTime: number;
     isDragging: boolean;
     onPointerDown: (
@@ -563,6 +592,20 @@ function MovementGraph({
     ((yMax - currentDistance) / yRange) *
       graphHeight;
 
+  // Detected taps inside the visible window, numbered cumulatively so the
+  // tick labels read as a running count across the whole video.
+  const visibleTaps = tapFrames
+    .map((frame, index) => ({ frame, count: index + 1 }))
+    .filter(
+      (tap) => tap.frame >= startFrame && tap.frame <= endFrame
+    );
+
+  const tapX = (frame: number) =>
+    padding.left +
+    ((frame - startFrame) /
+      Math.max(1, endFrame - startFrame)) *
+      graphWidth;
+
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
@@ -631,6 +674,42 @@ function MovementGraph({
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+
+      {/* Detected tap markers with cumulative counts */}
+      {visibleTaps.map((tap) => (
+        <g key={tap.frame}>
+          <circle
+            cx={tapX(tap.frame)}
+            cy={
+              padding.top +
+              ((yMax - (distances[tap.frame] ?? 0)) / yRange) *
+                graphHeight
+            }
+            r="4"
+            fill="#4936a3"
+            stroke="white"
+            strokeWidth="1"
+          />
+
+          <line
+            x1={tapX(tap.frame)}
+            y1={height - padding.bottom}
+            x2={tapX(tap.frame)}
+            y2={height - padding.bottom + 6}
+            stroke="#c4bee0"
+          />
+
+          <text
+            x={tapX(tap.frame)}
+            y={height - padding.bottom + 20}
+            textAnchor="middle"
+            fill="#6b61a8"
+            fontSize="11"
+          >
+            {tap.count}
+          </text>
+        </g>
+      ))}
 
       {/* Current video position */}
       <line
