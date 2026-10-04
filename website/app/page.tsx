@@ -1,620 +1,253 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
-type MovementData = {
-  fps: number;
-  distances: number[];
+const STAGES = [
+  "Detecting hand",
+  "Tracking landmarks",
+  "Measuring thumb-index distance",
+  "Counting taps",
+] as const;
+
+// Uneven on purpose, so the pass does not tick like a metronome.
+// About 6.5 seconds altogether.
+const STAGE_MS = [900, 2400, 1900, 1300] as const;
+
+const ANALYSIS_MS = STAGE_MS.reduce((sum, ms) => sum + ms, 0);
+
+const STAGE_ENDS = STAGE_MS.reduce<number[]>((ends, ms) => {
+  ends.push((ends.at(-1) ?? 0) + ms);
+  return ends;
+}, []);
+
+const formatBytes = (bytes: number) => {
+  if (bytes < 1000) return `${bytes} bytes`;
+
+  const units = ["KB", "MB", "GB"] as const;
+  let value = bytes / 1000;
+  let unit = 0;
+
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+
+  const digits = value >= 10 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unit]}`;
 };
 
-export default function Home() {
-  const videoRef = useRef<HTMLVideoElement>(null);
+const extensionOf = (name: string) => {
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0 || dot === name.length - 1) return "FILE";
+  return name.slice(dot + 1).toUpperCase();
+};
 
-  const [data, setData] = useState<MovementData | null>(null);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragWindowStart, setDragWindowStart] = useState<number | null>(null);
+export default function UploadPage() {
+  const router = useRouter();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const finishedRef = useRef(false);
 
-  // Load movement data
-  useEffect(() => {
-    fetch("/data/finger-tapping.json")
-      .then((response) => response.json())
-      .then((json) => setData(json));
-  }, []);
-
-  // Update graph whenever video moves
-  const animationFrameRef = useRef<number | null>(null);
-
-  const updateCurrentTime = () => {
-    if (!videoRef.current) return;
-
-    setCurrentTime(videoRef.current.currentTime);
-
-    if (!videoRef.current.paused && !videoRef.current.ended) {
-      animationFrameRef.current =
-        requestAnimationFrame(updateCurrentTime);
-    }
-  };
-
-  const handlePlay = () => {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-
-    animationFrameRef.current =
-      requestAnimationFrame(updateCurrentTime);
-  };
-
-  const handlePause = () => {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
-    }
-  };
+  const [file, setFile] = useState<File | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
+    router.prefetch("/analysis");
+  }, [router]);
+
+  useEffect(() => {
+    if (!analyzing) return;
+
+    finishedRef.current = false;
+    const start = performance.now();
+    let frame = 0;
+
+    const tick = (now: number) => {
+      const next = Math.min(1, (now - start) / ANALYSIS_MS);
+      setProgress(next);
+
+      if (next >= 1) {
+        if (!finishedRef.current) {
+          finishedRef.current = true;
+          router.push("/analysis");
+        }
+        return;
       }
-    };
-  }, []);
 
-  // Reset dragging if the pointer is released anywhere on the page
-  useEffect(() => {
-    const handleGlobalPointerUp = () => {
-      setIsDragging(false);
-      setDragWindowStart(null);
+      frame = requestAnimationFrame(tick);
     };
 
-    window.addEventListener("pointerup", handleGlobalPointerUp);
+    frame = requestAnimationFrame(tick);
 
-    return () => {
-      window.removeEventListener("pointerup", handleGlobalPointerUp);
-    };
-  }, []);
+    return () => cancelAnimationFrame(frame);
+  }, [analyzing, router]);
 
-  const getTimeFromGraphPosition = (
-    clientX: number,
-    svg: SVGSVGElement,
-    windowStartOverride?: number
-  ) => {
-    if (!videoRef.current) return null;
-
-    const rect = svg.getBoundingClientRect();
-
-    const svgX =
-      ((clientX - rect.left) / rect.width) * 800;
-
-    const paddingLeft = 60;
-    const paddingRight = 20;
-    const graphWidth = 800 - paddingLeft - paddingRight;
-
-    // Keep mouse inside the actual graph area
-    const graphX = Math.max(
-      paddingLeft,
-      Math.min(paddingLeft + graphWidth, svgX)
-    );
-
-    const percentage =
-      (graphX - paddingLeft) / graphWidth;
-
-    const WINDOW_SECONDS = 5;
-    const duration = videoRef.current.duration;
-
-    if (!Number.isFinite(duration)) return null;
-
-    const maxStartTime = Math.max(
-      0,
-      duration - WINDOW_SECONDS
-    );
-
-    // Use frozen window while dragging
-    const windowStart =
-      windowStartOverride !== undefined
-        ? windowStartOverride
-        : Math.max(
-            0,
-            Math.min(
-              currentTime - WINDOW_SECONDS,
-              maxStartTime
-            )
-          );
-
-    const windowEnd = Math.min(
-      duration,
-      windowStart + WINDOW_SECONDS
-    );
-
-    return (
-      windowStart +
-      percentage * (windowEnd - windowStart)
-    );
+  const takeFile = (next: File | undefined) => {
+    if (!next || analyzing) return;
+    setFile(next);
   };
 
-  const handleGraphPointerDown = (
-    event: React.PointerEvent<SVGSVGElement>
-  ) => {
-    const svg = event.currentTarget;
-
-    svg.setPointerCapture(event.pointerId);
-
-    const WINDOW_SECONDS = 5;
-    const duration = videoRef.current?.duration;
-
-    if (!duration || !Number.isFinite(duration)) return;
-
-    // Stop the playback loop while scrubbing
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-
-    // Pause video while dragging
-    if (videoRef.current) {
-      videoRef.current.pause();
-    }
-
-    const maxStartTime = Math.max(
-      0,
-      duration - WINDOW_SECONDS
-    );
-
-    const windowStart = Math.max(
-      0,
-      Math.min(
-        currentTime - WINDOW_SECONDS / 2,
-        maxStartTime
-      )
-    );
-
-    setDragWindowStart(windowStart);
-    setIsDragging(true);
-
-    const time = getTimeFromGraphPosition(
-      event.clientX,
-      svg,
-      windowStart
-    );
-
-    if (time !== null && videoRef.current) {
-      videoRef.current.currentTime = time;
-      setCurrentTime(time);
-    }
-  };
-
-  const handleGraphPointerMove = (
-    event: React.PointerEvent<SVGSVGElement>
-  ) => {
-    if (!isDragging || dragWindowStart === null) return;
-
-    const svg = event.currentTarget;
-
-    const time = getTimeFromGraphPosition(
-      event.clientX,
-      svg,
-      dragWindowStart
-    );
-
-    if (time !== null && videoRef.current) {
-      videoRef.current.currentTime = time;
-      setCurrentTime(time);
-    }
-  };
-
-  const handleGraphPointerUp = (
-    event: React.PointerEvent<SVGSVGElement>
-  ) => {
-    const svg = event.currentTarget;
-
-    if (svg.hasPointerCapture(event.pointerId)) {
-      svg.releasePointerCapture(event.pointerId);
-    }
-
-    setIsDragging(false);
-    setDragWindowStart(null);
-
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
-    }
-  };
-
-
-  const currentFrame = data
-    ? Math.floor(currentTime * data.fps)
-    : 0;
-
-  const currentDistance =
-    data?.distances[currentFrame] ?? 0;
+  const elapsed = progress * ANALYSIS_MS;
+  const stageAt = STAGE_ENDS.findIndex((end) => elapsed < end);
+  const activeStage = stageAt === -1 ? STAGES.length - 1 : stageAt;
 
   return (
-    <main className="min-h-screen bg-[#fafaff] px-8 py-12 text-[#26165f]">
-      
-      {/* Header */}
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-10">
-          <p className="mb-2 text-sm font-medium tracking-widest text-[#6b61a8]">
-            CAMP QMIND 2026
-          </p>
+    <main className="min-h-screen bg-paper text-ink">
+      <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col px-5 py-8 sm:px-8 sm:py-14">
+        <p className="font-mono text-[11px] text-ink-soft">Camp QMIND 2026</p>
 
-          <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
-            Video-Based Parkinson&apos;s
-            <br />
-            Motor Movement Analysis
-          </h1>
+        <h1 className="mt-10 font-display text-4xl leading-[1.05] text-ink sm:text-5xl">
+          Start with a recording
+        </h1>
 
-          <p className="mt-4 max-w-2xl text-lg text-[#68657a]">
-            Exploring finger-tapping movements through computer vision.
-          </p>
-        </div>
+        <p className="mt-4 max-w-md text-lg leading-7 text-ink-soft">
+          Choose a finger-tapping video. The motor analysis opens when the
+          pass finishes.
+        </p>
 
-        {/* Main analysis area */}
-        <div className="grid gap-6 lg:grid-cols-2">
+        {analyzing ? (
+          <section className="mt-12" aria-live="polite">
+            <p className="font-mono text-[11px] text-ink-soft">
+              {file?.name}
+            </p>
 
-          {/* Video */}
-          <div className="rounded-2xl border border-[#dddaf0] bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-lg font-semibold">
-              Finger-Tapping Video
-            </h2>
+            <p className="mt-6 font-display text-2xl leading-snug">
+              {STAGES[activeStage]}
+            </p>
 
-            <video
-              ref={videoRef}
-              src="/video/finger-tapping-web.mp4"
-              controls
-              onPlay={handlePlay}
-              onPause={handlePause}
-              onSeeked={handlePause}
-              className="w-full rounded-xl bg-black"
-            />
-           
-          </div>
+            <div className="mt-6 h-px w-full bg-rule">
+              <div
+                className="h-px origin-left bg-accent"
+                style={{ transform: `scaleX(${progress})` }}
+              />
+            </div>
 
-          {/* Graph */}
-          <div className="rounded-2xl border border-[#dddaf0] bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-lg font-semibold">
-              Finger Distance
-            </h2>
+            <ol className="mt-8 space-y-2">
+              {STAGES.map((stage, index) => {
+                const done = index < activeStage || progress >= 1;
+                const current = index === activeStage && progress < 1;
 
-            <div className="w-full overflow-hidden rounded-xl bg-[#fafaff] p-4">
-              {data && (
-                <MovementGraph
-                  distances={data.distances}
-                  fps={data.fps}
-                  currentTime={currentTime}
-                  isDragging={isDragging}
-                  onPointerDown={handleGraphPointerDown}
-                  onPointerMove={handleGraphPointerMove}
-                  onPointerUp={handleGraphPointerUp}
-                />
+                return (
+                  <li
+                    key={stage}
+                    className={`text-sm ${
+                      done || current ? "text-ink" : "text-ink-soft/70"
+                    }`}
+                  >
+                    <span className="mr-3 font-mono text-[11px] text-ink-soft">
+                      {done ? "Done" : current ? "Now" : "0" + (index + 1)}
+                    </span>
+                    {stage}
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
+        ) : (
+          <section className="mt-12">
+            <label
+              className={`block cursor-pointer border border-dashed px-5 py-10 transition-colors ${
+                dragOver
+                  ? "border-accent bg-paper-raised"
+                  : "border-rule bg-transparent"
+              }`}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragOver(false);
+                takeFile(event.dataTransfer.files?.[0]);
+              }}
+            >
+              <input
+                ref={inputRef}
+                type="file"
+                className="sr-only"
+                onChange={(event) => {
+                  takeFile(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+
+              <span className="block font-display text-2xl leading-snug">
+                Drop a video here
+              </span>
+              <span className="mt-2 block text-sm text-ink-soft">
+                or choose a file
+              </span>
+            </label>
+
+            {file && (
+              <div className="mt-4 flex items-center gap-4 border border-rule bg-paper-raised px-4 py-3">
+                <FileMark />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-ink">{file.name}</p>
+                  <p className="mt-0.5 font-mono text-[11px] text-ink-soft">
+                    {extensionOf(file.name)} · {formatBytes(file.size)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="text-sm text-ink-soft underline decoration-rule underline-offset-4 hover:text-ink"
+                  onClick={() => setFile(null)}
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+
+            <div className="mt-6 flex items-center gap-4">
+              <button
+                type="button"
+                disabled={!file}
+                onClick={() => setAnalyzing(true)}
+                className="bg-ink px-5 py-2.5 text-sm text-paper-raised disabled:cursor-not-allowed disabled:bg-rule disabled:text-ink-soft"
+              >
+                Analyze
+              </button>
+              {!file && (
+                <button
+                  type="button"
+                  className="text-sm text-ink-soft underline decoration-rule underline-offset-4 hover:text-ink"
+                  onClick={() => inputRef.current?.click()}
+                >
+                  Browse files
+                </button>
               )}
             </div>
-
-            <div className="mt-4 flex justify-between text-sm text-[#68657a]">
-              <span>Thumb ↔ Index distance</span>
-              <span>
-                {currentDistance.toFixed(2)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Metrics */}
-        <div className="mt-6 grid gap-4 md:grid-cols-3">
-
-          <Metric
-            label="Taps"
-            value="31"
-          />
-
-          <Metric
-            label="Frequency"
-            value="1.55 Hz"
-          />
-
-          <Metric
-            label="Average Amplitude"
-            value="0.36"
-          />
-
-        </div>
-
-        {/* Explanation */}
-        <div className="mt-8 rounded-2xl border border-[#dddaf0] bg-[#f1effc] p-6">
-          <h2 className="text-lg font-semibold">
-            What are we measuring?
-          </h2>
-
-          <p className="mt-2 max-w-3xl leading-7 text-[#5f5b73]">
-            MediaPipe tracks points on the hand throughout the video.
-            We use the distance between the thumb and index fingertip
-            to create a movement signal that changes over time.
-          </p>
-        </div>
+          </section>
+        )}
       </div>
     </main>
   );
 }
 
-
-function Metric({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-[#dddaf0] bg-white p-6 shadow-sm">
-      <p className="text-sm font-medium text-[#77738c]">
-        {label}
-      </p>
-
-      <p className="mt-2 text-3xl font-bold text-[#26165f]">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-
-function MovementGraph({
-    distances,
-    fps,
-    currentTime,
-    isDragging,
-    onPointerDown,
-    onPointerMove,
-    onPointerUp,
-  }: {
-    distances: number[];
-    fps: number;
-    currentTime: number;
-    isDragging: boolean;
-    onPointerDown: (
-      event: React.PointerEvent<SVGSVGElement>
-    ) => void;
-    onPointerMove: (
-      event: React.PointerEvent<SVGSVGElement>
-    ) => void;
-    onPointerUp: (
-      event: React.PointerEvent<SVGSVGElement>
-    ) => void;
-  }) {
-  const width = 800;
-  const height = 350;
-
-  const padding = {
-    left: 60,
-    right: 20,
-    top: 30,
-    bottom: 45,
-  };
-
-  const graphWidth =
-    width - padding.left - padding.right;
-
-  const graphHeight =
-    height - padding.top - padding.bottom;
-
-  // Match the Python graph:
-  // 120 frames are visible at once.
-  const WINDOW_FRAMES = 120;
-
-  // Current video frame
-  const currentFrame = Math.min(
-    Math.floor(currentTime * fps),
-    distances.length - 1
-  );
-
-  // Sliding window centered around the current frame
-  const halfWindow = Math.floor(WINDOW_FRAMES / 2);
-
-  const maxStartFrame = Math.max(
-    0,
-    distances.length - WINDOW_FRAMES
-  );
-
-  const startFrame = Math.max(
-    0,
-    Math.min(
-      currentFrame - halfWindow,
-      maxStartFrame
-    )
-  );
-
-  const endFrame = Math.min(
-    distances.length - 1,
-    startFrame + WINDOW_FRAMES - 1
-  );
-
-  const visibleDistances = distances.slice(
-    startFrame,
-    endFrame + 1
-  );
-
-  if (visibleDistances.length < 2) {
-    return null;
-  }
-
-    // Fixed Y-axis range
-    const yMin = 0;
-    const yMax = 0.5;
-    const yRange = yMax - yMin;
-
-  // Convert data points into SVG coordinates
-  const points = visibleDistances.map(
-    (distance, index) => {
-      const frameIndex = startFrame + index;
-
-      const x =
-        padding.left +
-        ((frameIndex - startFrame) /
-          Math.max(1, endFrame - startFrame)) *
-          graphWidth;
-
-      const y =
-        padding.top +
-        ((yMax - distance) / yRange) *
-          graphHeight;
-
-      return `${x},${y}`;
-    }
-  );
-
-  // Current video position
-  const currentX =
-    padding.left +
-    ((currentFrame - startFrame) /
-      Math.max(1, endFrame - startFrame)) *
-      graphWidth;
-
-  const currentDistance =
-    distances[currentFrame] ?? 0;
-
-  const currentY =
-    padding.top +
-    ((yMax - currentDistance) / yRange) *
-      graphHeight;
-
+function FileMark() {
   return (
     <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className={`w-full ${
-        isDragging ? "cursor-grabbing" : "cursor-crosshair"
-      }`}
-      style={{
-        touchAction: "none",
-        userSelect: "none",
-      }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      width="28"
+      height="34"
+      viewBox="0 0 28 34"
+      aria-hidden="true"
+      className="shrink-0 text-ink-soft"
     >
-      {/* Y axis labels */}
-
-      {/* 0.5 */}
-      <text
-        x={padding.left - 10}
-        y={padding.top + 5}
-        textAnchor="end"
-        fill="#77738c"
-        fontSize="13"
-      >
-        0.5
-      </text>
-
-      {/* 0.25 */}
-      <text
-        x={padding.left - 10}
-        y={padding.top + graphHeight / 2 + 5}
-        textAnchor="end"
-        fill="#77738c"
-        fontSize="13"
-      >
-        0.25
-      </text>
-
-      {/* 0 */}
-      <text
-        x={padding.left - 10}
-        y={height - padding.bottom + 5}
-        textAnchor="end"
-        fill="#77738c"
-        fontSize="13"
-      >
-        0
-      </text>
-
-      {/* X axis */}
-      <line
-        x1={padding.left}
-        y1={height - padding.bottom}
-        x2={width - padding.right}
-        y2={height - padding.bottom}
-        stroke="#d9d6e8"
-      />
-
-      {/* Movement line */}
-      <polyline
-        points={points.join(" ")}
+      <path
+        d="M3 1.5h13.2L25 10.2V32.5H3V1.5Z"
         fill="none"
-        stroke="#4936a3"
-        strokeWidth="4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        stroke="currentColor"
+        strokeWidth="1.25"
       />
-
-      {/* Current video position */}
-      <line
-        x1={currentX}
-        y1={padding.top}
-        x2={currentX}
-        y2={height - padding.bottom}
-        stroke="#d946ef"
-        strokeWidth={isDragging ? 4 : 2}
-        strokeDasharray="5 5"
+      <path
+        d="M16 1.8V10h8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.25"
       />
-
-      {/* Current point */}
-      <circle
-        cx={currentX}
-        cy={currentY}
-        r={isDragging ? 12 : 8}
-        fill="#e11d48"
-        stroke="white"
-        strokeWidth={isDragging ? 3 : 2}
-      />
-
-      {/* Left time */}
-      <text
-        x={padding.left}
-        y={height - 15}
-        fill="#77738c"
-        fontSize="13"
-      >
-        {(startFrame / fps).toFixed(1)}s
-      </text>
-
-      {/* Right time */}
-      <text
-        x={width - padding.right}
-        y={height - 15}
-        textAnchor="end"
-        fill="#77738c"
-        fontSize="13"
-      >
-        {(endFrame / fps).toFixed(1)}s
-      </text>
-
-      {/* Current time */}
-      <text
-        x={currentX}
-        y={padding.top - 10}
-        textAnchor="middle"
-        fill="#4936a3"
-        fontSize="13"
-        fontWeight="600"
-      >
-        {currentTime.toFixed(1)}s
-      </text>
-
-      {/* Y axis label */}
-      <text
-        x="18"
-        y={height / 2}
-        textAnchor="middle"
-        transform={`rotate(-90 18 ${height / 2})`}
-        fill="#77738c"
-        fontSize="14"
-      >
-        Distance
-      </text>
     </svg>
   );
 }
-
