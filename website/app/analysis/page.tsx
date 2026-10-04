@@ -739,8 +739,9 @@ function MovementGraph({
             x={padding.left - 14}
             y={yForDistance(tick) + 4}
             textAnchor="end"
-            fill="#5e584f"
-            fontSize="12"
+            fill="#3a342c"
+            fontSize="14"
+            fontWeight="600"
             style={{ userSelect: "none" }}
           >
             {Math.round(tick * 100)}%
@@ -777,10 +778,11 @@ function MovementGraph({
           />
           <text
             x={xForFrame(tap.frame)}
-            y={axisY + 18}
+            y={axisY + 20}
             textAnchor="middle"
-            fill="#5e584f"
-            fontSize="11"
+            fill="#3a342c"
+            fontSize="13"
+            fontWeight="600"
             style={{ userSelect: "none" }}
           >
             {tap.count}
@@ -808,20 +810,34 @@ function MovementGraph({
 
       <text
         x={padding.left}
-        y={height - 16}
-        fill="#5e584f"
-        fontSize="12"
+        y={height - 18}
+        fill="#3a342c"
+        fontSize="14"
+        fontWeight="600"
         style={{ userSelect: "none" }}
       >
         {(startFrame / fps).toFixed(1)}s
       </text>
 
       <text
+        x={padding.left + graphWidth / 2}
+        y={height - 18}
+        textAnchor="middle"
+        fill="#3a342c"
+        fontSize="14"
+        fontWeight="600"
+        style={{ userSelect: "none" }}
+      >
+        Time
+      </text>
+
+      <text
         x={width - padding.right}
-        y={height - 16}
+        y={height - 18}
         textAnchor="end"
-        fill="#5e584f"
-        fontSize="12"
+        fill="#3a342c"
+        fontSize="14"
+        fontWeight="600"
         style={{ userSelect: "none" }}
       >
         {(endFrame / fps).toFixed(1)}s
@@ -832,8 +848,8 @@ function MovementGraph({
         y={padding.top - 12}
         textAnchor="middle"
         fill="#1c1915"
-        fontSize="12"
-        fontWeight="500"
+        fontSize="14"
+        fontWeight="600"
         style={{ userSelect: "none" }}
       >
         {currentTime.toFixed(1)}s
@@ -844,8 +860,9 @@ function MovementGraph({
         y={height / 2}
         textAnchor="middle"
         transform={`rotate(-90 16 ${height / 2})`}
-        fill="#5e584f"
-        fontSize="12"
+        fill="#3a342c"
+        fontSize="13"
+        fontWeight="600"
         style={{ userSelect: "none" }}
       >
         Thumb-index distance (% of frame)
