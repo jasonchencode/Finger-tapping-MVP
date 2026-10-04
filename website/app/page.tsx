@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   countTapsUpToFrame,
+  meanTapHeight,
   normalizeTapFrames,
 } from "./tap-counter";
 
@@ -10,6 +11,12 @@ type MovementData = {
   fps: number;
   distances: number[];
 };
+
+// Match the Python graph: 120 frames are visible at once.
+const WINDOW_FRAMES = 120;
+
+// Longest trailing span the frequency metric averages over.
+const FREQUENCY_WINDOW_SECONDS = 5;
 
 export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -257,6 +264,59 @@ export default function Home() {
     currentFrame
   );
 
+  // Taps in the trailing window divided by that window's length in seconds.
+  // The window is capped at what has elapsed, so early frames still show an
+  // honest rate instead of a diluted one.
+  const windowSeconds = data
+    ? Math.min(currentTime, FREQUENCY_WINDOW_SECONDS)
+    : 0;
+
+  const windowStartFrame =
+    data && windowSeconds < FREQUENCY_WINDOW_SECONDS
+      ? 0
+      : data
+        ? Math.floor(
+            (currentTime - FREQUENCY_WINDOW_SECONDS) * data.fps
+          )
+        : 0;
+
+  const trailingWindowTaps =
+    currentTaps - countTapsUpToFrame(sortedTapFrames, windowStartFrame);
+
+  const currentFrequency =
+    windowSeconds > 0 ? trailingWindowTaps / windowSeconds : 0;
+
+  // Same sliding window the graph displays, so the amplitude matches what
+  // is on screen.
+  const maxStartFrame = data
+    ? Math.max(0, data.distances.length - WINDOW_FRAMES)
+    : 0;
+
+  const visibleStartFrame = Math.max(
+    0,
+    Math.min(
+      currentFrame - Math.floor(WINDOW_FRAMES / 2),
+      maxStartFrame
+    )
+  );
+
+  const visibleEndFrame = data
+    ? Math.min(
+        data.distances.length - 1,
+        visibleStartFrame + WINDOW_FRAMES - 1
+      )
+    : 0;
+
+  const visibleTapHeights = sortedTapFrames
+    .filter(
+      (frame) =>
+        frame >= visibleStartFrame && frame <= visibleEndFrame
+    )
+    .map((frame) => data?.distances[frame] ?? 0);
+
+  const averageVisibleAmplitude =
+    meanTapHeight(visibleTapHeights);
+
   return (
     <main className="min-h-screen bg-[#fafaff] px-8 py-12 text-[#26165f]">
       
@@ -338,12 +398,12 @@ export default function Home() {
 
           <Metric
             label="Frequency"
-            value="1.55 Hz"
+            value={`${currentFrequency.toFixed(2)} Hz`}
           />
 
           <Metric
             label="Average Amplitude"
-            value="0.36"
+            value={averageVisibleAmplitude.toFixed(2)}
           />
 
         </div>
@@ -426,17 +486,14 @@ function MovementGraph({
   const graphHeight =
     height - padding.top - padding.bottom;
 
-  // Match the Python graph:
-  // 120 frames are visible at once.
-  const WINDOW_FRAMES = 120;
-
   // Current video frame
   const currentFrame = Math.min(
     Math.floor(currentTime * fps),
     distances.length - 1
   );
 
-  // Sliding window centered around the current frame
+  // Match the Python graph:
+  // 120 frames are visible at once.
   const halfWindow = Math.floor(WINDOW_FRAMES / 2);
 
   const maxStartFrame = Math.max(
