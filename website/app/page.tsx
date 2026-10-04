@@ -12,6 +12,8 @@ export default function Home() {
 
   const [data, setData] = useState<MovementData | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragWindowStart, setDragWindowStart] = useState<number | null>(null);
 
   // Load movement data
   useEffect(() => {
@@ -62,29 +64,101 @@ export default function Home() {
     };
   }, []);
 
-  // Clicking the graph moves the video
-const handleGraphClick = (
-    event: React.MouseEvent<SVGSVGElement>
-  ) => {
-    if (!videoRef.current || !data) return;
+  // Reset dragging if the pointer is released anywhere on the page
+  useEffect(() => {
+    const handleGlobalPointerUp = () => {
+      setIsDragging(false);
+      setDragWindowStart(null);
+    };
 
-    const svg = event.currentTarget;
+    window.addEventListener("pointerup", handleGlobalPointerUp);
+
+    return () => {
+      window.removeEventListener("pointerup", handleGlobalPointerUp);
+    };
+  }, []);
+
+  const getTimeFromGraphPosition = (
+    clientX: number,
+    svg: SVGSVGElement,
+    windowStartOverride?: number
+  ) => {
+    if (!videoRef.current) return null;
+
     const rect = svg.getBoundingClientRect();
 
-    const x = event.clientX - rect.left;
+    const svgX =
+      ((clientX - rect.left) / rect.width) * 800;
 
-    // Keep percentage between 0 and 1
-    const percentage = Math.max(
-      0,
-      Math.min(1, x / rect.width)
+    const paddingLeft = 60;
+    const paddingRight = 20;
+    const graphWidth = 800 - paddingLeft - paddingRight;
+
+    // Keep mouse inside the actual graph area
+    const graphX = Math.max(
+      paddingLeft,
+      Math.min(paddingLeft + graphWidth, svgX)
     );
+
+    const percentage =
+      (graphX - paddingLeft) / graphWidth;
 
     const WINDOW_SECONDS = 5;
     const duration = videoRef.current.duration;
 
-    if (!Number.isFinite(duration)) return;
+    if (!Number.isFinite(duration)) return null;
 
-    // Use the same sliding-window logic as the graph
+    const maxStartTime = Math.max(
+      0,
+      duration - WINDOW_SECONDS
+    );
+
+    // Use frozen window while dragging
+    const windowStart =
+      windowStartOverride !== undefined
+        ? windowStartOverride
+        : Math.max(
+            0,
+            Math.min(
+              currentTime - WINDOW_SECONDS,
+              maxStartTime
+            )
+          );
+
+    const windowEnd = Math.min(
+      duration,
+      windowStart + WINDOW_SECONDS
+    );
+
+    return (
+      windowStart +
+      percentage * (windowEnd - windowStart)
+    );
+  };
+
+  const handleGraphPointerDown = (
+    event: React.PointerEvent<SVGSVGElement>
+  ) => {
+    const svg = event.currentTarget;
+
+    svg.setPointerCapture(event.pointerId);
+
+    const WINDOW_SECONDS = 5;
+    const duration = videoRef.current?.duration;
+
+    if (!duration || !Number.isFinite(duration)) return;
+
+    // Stop the playback loop while scrubbing
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    // Pause video while dragging
+    if (videoRef.current) {
+      videoRef.current.pause();
+    }
+
     const maxStartTime = Math.max(
       0,
       duration - WINDOW_SECONDS
@@ -93,25 +167,62 @@ const handleGraphClick = (
     const windowStart = Math.max(
       0,
       Math.min(
-        currentTime - WINDOW_SECONDS,
+        currentTime - WINDOW_SECONDS / 2,
         maxStartTime
       )
     );
 
-    const windowEnd = Math.min(
-      duration,
-      windowStart + WINDOW_SECONDS
+    setDragWindowStart(windowStart);
+    setIsDragging(true);
+
+    const time = getTimeFromGraphPosition(
+      event.clientX,
+      svg,
+      windowStart
     );
 
-    const clickedTime =
-      windowStart +
-      percentage * (windowEnd - windowStart);
-
-    videoRef.current.currentTime = Math.max(
-      0,
-      Math.min(clickedTime, duration)
-    );
+    if (time !== null && videoRef.current) {
+      videoRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
   };
+
+  const handleGraphPointerMove = (
+    event: React.PointerEvent<SVGSVGElement>
+  ) => {
+    if (!isDragging || dragWindowStart === null) return;
+
+    const svg = event.currentTarget;
+
+    const time = getTimeFromGraphPosition(
+      event.clientX,
+      svg,
+      dragWindowStart
+    );
+
+    if (time !== null && videoRef.current) {
+      videoRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
+  };
+
+  const handleGraphPointerUp = (
+    event: React.PointerEvent<SVGSVGElement>
+  ) => {
+    const svg = event.currentTarget;
+
+    if (svg.hasPointerCapture(event.pointerId)) {
+      svg.releasePointerCapture(event.pointerId);
+    }
+
+    setIsDragging(false);
+    setDragWindowStart(null);
+
+    if (videoRef.current) {
+      setCurrentTime(videoRef.current.currentTime);
+    }
+  };
+
 
   const currentFrame = data
     ? Math.floor(currentTime * data.fps)
@@ -174,7 +285,10 @@ const handleGraphClick = (
                   distances={data.distances}
                   fps={data.fps}
                   currentTime={currentTime}
-                  onClick={handleGraphClick}
+                  isDragging={isDragging}
+                  onPointerDown={handleGraphPointerDown}
+                  onPointerMove={handleGraphPointerMove}
+                  onPointerUp={handleGraphPointerUp}
                 />
               )}
             </div>
@@ -248,16 +362,28 @@ function Metric({
 
 
 function MovementGraph({
-  distances,
-  fps,
-  currentTime,
-  onClick,
-}: {
-  distances: number[];
-  fps: number;
-  currentTime: number;
-  onClick: (event: React.MouseEvent<SVGSVGElement>) => void;
-}) {
+    distances,
+    fps,
+    currentTime,
+    isDragging,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+  }: {
+    distances: number[];
+    fps: number;
+    currentTime: number;
+    isDragging: boolean;
+    onPointerDown: (
+      event: React.PointerEvent<SVGSVGElement>
+    ) => void;
+    onPointerMove: (
+      event: React.PointerEvent<SVGSVGElement>
+    ) => void;
+    onPointerUp: (
+      event: React.PointerEvent<SVGSVGElement>
+    ) => void;
+  }) {
   const width = 800;
   const height = 350;
 
@@ -284,10 +410,20 @@ function MovementGraph({
     distances.length - 1
   );
 
-  // Sliding window
+  // Sliding window centered around the current frame
+  const halfWindow = Math.floor(WINDOW_FRAMES / 2);
+
+  const maxStartFrame = Math.max(
+    0,
+    distances.length - WINDOW_FRAMES
+  );
+
   const startFrame = Math.max(
     0,
-    currentFrame - WINDOW_FRAMES + 1
+    Math.min(
+      currentFrame - halfWindow,
+      maxStartFrame
+    )
   );
 
   const endFrame = Math.min(
@@ -347,8 +483,17 @@ function MovementGraph({
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      className="w-full cursor-crosshair"
-      onClick={onClick}
+      className={`w-full ${
+        isDragging ? "cursor-grabbing" : "cursor-crosshair"
+      }`}
+      style={{
+        touchAction: "none",
+        userSelect: "none",
+      }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
     >
       {/* Y axis labels */}
 
@@ -411,7 +556,7 @@ function MovementGraph({
         x2={currentX}
         y2={height - padding.bottom}
         stroke="#d946ef"
-        strokeWidth="2"
+        strokeWidth={isDragging ? 4 : 2}
         strokeDasharray="5 5"
       />
 
@@ -419,8 +564,10 @@ function MovementGraph({
       <circle
         cx={currentX}
         cy={currentY}
-        r="8"
+        r={isDragging ? 12 : 8}
         fill="#e11d48"
+        stroke="white"
+        strokeWidth={isDragging ? 3 : 2}
       />
 
       {/* Left time */}
