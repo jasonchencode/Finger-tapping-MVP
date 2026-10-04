@@ -1,48 +1,124 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --paper: #f3eee6;
+  --paper-raised: #faf7f2;
+  --ink: #1c1915;
+  --ink-soft: #5e584f;
+  --rule: #ddd4c6;
+  --accent: #8c3a2a;
+  --signal: #9f2d2d;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-paper: var(--paper);
+  --color-paper-raised: var(--paper-raised);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-rule: var(--rule);
+  --color-accent: var(--accent);
+  --color-signal: var(--signal);
+  --font-sans: var(--font-source), "Source Sans 3", sans-serif;
+  --font-display: var(--font-fraunces), Fraunces, serif;
+  --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
+  background: var(--paper);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
 }
 
-/* Fires whenever the live tap counter ticks up during playback. */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.graph-surface,
+.graph-surface text {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.scrubber {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.scrubber::-webkit-slider-runnable-track {
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    var(--ink) var(--scrub, 0%),
+    var(--rule) var(--scrub, 0%)
+  );
+}
+
+.scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-top: -4.5px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ink);
+}
+
+.scrubber::-moz-range-track {
+  height: 2px;
+  border: 0;
+  background: var(--rule);
+}
+
+.scrubber::-moz-range-progress {
+  height: 2px;
+  background: var(--ink);
+}
+
+.scrubber::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ink);
+}
+
+/* A quiet tick when the live tap count increases during playback. */
 @keyframes tap-pulse {
   0% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(73, 54, 163, 0.35);
   }
 
-  50% {
-    transform: scale(1.04);
-    box-shadow: 0 0 0 14px rgba(73, 54, 163, 0);
+  35% {
+    transform: scale(1.012);
   }
 
   100% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(73, 54, 163, 0);
   }
 }
 
 .tap-pulse {
-  animation: tap-pulse 0.6s ease-out;
+  transform-origin: left center;
+  animation: tap-pulse 0.45s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .tap-pulse {
+    animation: none;
+  }
 }
