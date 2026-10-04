@@ -1,98 +1,105 @@
-import numpy as np
 import math
 import cv2
 import mediapipe as mp
-import matplotlib.pyplot as plt
+import json
 
+# --------------------------------------------------
+# 1. Load video
+# --------------------------------------------------
 
-# Annotate hands
-mp_drawing = mp.solutions.drawing_utils
-mp_hands = mp.solutions.hands
-
-# Use OpenCV’s VideoCapture to load the input video.
 video_path = "../data/CONTROL01_DCHA copy.mp4"
+output_path = "../output/output.mp4"
+
 cap = cv2.VideoCapture(video_path)
 
-# Load the frame rate of the video using OpenCV’s CV_CAP_PROP_FPS
 fps = cap.get(cv2.CAP_PROP_FPS)
+width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+# --------------------------------------------------
+# 2. Set up MediaPipe Hand Landmarker
+# --------------------------------------------------
 
 BaseOptions = mp.tasks.BaseOptions
 HandLandmarker = mp.tasks.vision.HandLandmarker
 HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
 VisionRunningMode = mp.tasks.vision.RunningMode
 
-# Create a hand landmarker instance with the video mode:
 options = HandLandmarkerOptions(
-    base_options=BaseOptions(model_asset_path='../hand_landmarker.task'),
-    running_mode=VisionRunningMode.VIDEO)
+    base_options=BaseOptions(
+        model_asset_path="../hand_landmarker.task"
+    ),
+    running_mode=VisionRunningMode.VIDEO
+)
+
+# --------------------------------------------------
+# 3. Detect hand landmarks
+# --------------------------------------------------
 
 results = []
 
 with HandLandmarker.create_from_options(options) as landmarker:
-  # The landmarker is initialized. Use it here.
-  # ...
 
-  # You’ll need it to calculate the timestamp for each frame.
+    counter = 1
 
-  # Loop through each frame in the video using VideoCapture#read()
-  counter = 1
-  while cap.isOpened():
-    success, frame = cap.read()
+    while cap.isOpened():
 
-    if not success:
-        break
+        success, frame = cap.read()
 
-    # Convert the frame received from OpenCV to a MediaPipe’s Image object.
-    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
+        if not success:
+            break
 
-  
-    hand_landmarker_result = landmarker.detect_for_video(mp_image, int(counter*1000/fps))
-    results.append(hand_landmarker_result.hand_landmarks)
-    counter+=1
+        mp_image = mp.Image(
+            image_format=mp.ImageFormat.SRGB,
+            data=frame
+        )
+
+        hand_landmarker_result = landmarker.detect_for_video(
+            mp_image,
+            int(counter * 1000 / fps)
+        )
+
+        results.append(
+            hand_landmarker_result.hand_landmarks
+        )
+
+        counter += 1
+
+
+# --------------------------------------------------
+# 4. Calculate thumb-index distance
+# --------------------------------------------------
 
 def distance(r):
-  if len(r)==0:
-     return 0
-  x_thumb = r[0][4].x
-  y_thumb = r[0][4].y
-  z_thumb = r[0][4].z
 
-  x_index = r[0][8].x
-  y_index = r[0][8].y
-  z_index = r[0][8].z
+    if len(r) == 0:
+        return 0
 
-  d = math.sqrt((x_thumb-x_index)**2 + (y_thumb-y_index)**2)
-  # with z axis:
-  # d = math.sqrt((x_thumb-x_index)**2 + (y_thumb-y_index)**2 + (z_thumb-z_index)**2)
+    x_thumb = r[0][4].x
+    y_thumb = r[0][4].y
 
-  return d
+    x_index = r[0][8].x
+    y_index = r[0][8].y
+
+    d = math.sqrt(
+        (x_thumb - x_index) ** 2 +
+        (y_thumb - y_index) ** 2
+    )
+
+    return d
+
 
 distances = []
 
 for r in results:
-   distances.append(distance(r))
+    distances.append(distance(r))
 
-# plt.plot(np.arange(len(distances)), distances)
-# plt.show()
 
-# VIDEO WITH LIVE GRAPH
-
-x_values = np.arange(len(distances))
-y_values = distances
-
-output_path = '../output/output.mp4'
-width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-# Graph dimensions
-graph_width = 500
-graph_height = 300
-
-# Output video is wider because graph is placed beside video
-output_width = width + graph_width
+# --------------------------------------------------
+# 5. Prepare output video
+# --------------------------------------------------
 
 cap = cv2.VideoCapture(video_path)
-fps = cap.get(cv2.CAP_PROP_FPS)
 
 fourcc = cv2.VideoWriter_fourcc(*"mp4v")
 
@@ -100,211 +107,138 @@ out = cv2.VideoWriter(
     output_path,
     fourcc,
     fps,
-    (output_width, height)
+    (width, height)
 )
 
 if not out.isOpened():
     print("ERROR: VideoWriter could not be opened")
+    exit()
 
-frame_number = 0
+
+# --------------------------------------------------
+# 6. Hand connections
+# --------------------------------------------------
 
 HAND_CONNECTIONS = [
-    (0, 1), (1, 2), (2, 3), (3, 4),
-    (0, 5), (5, 6), (6, 7), (7, 8),
-    (5, 9), (9, 10), (10, 11), (11, 12),
-    (9, 13), (13, 14), (14, 15), (15, 16),
-    (13, 17), (17, 18), (18, 19), (19, 20),
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 4),
+
+    (0, 5),
+    (5, 6),
+    (6, 7),
+    (7, 8),
+
+    (5, 9),
+    (9, 10),
+    (10, 11),
+    (11, 12),
+
+    (9, 13),
+    (13, 14),
+    (14, 15),
+    (15, 16),
+
+    (13, 17),
+    (17, 18),
+    (18, 19),
+    (19, 20),
+
     (0, 17)
 ]
 
+
+# --------------------------------------------------
+# 7. Draw annotations onto video
+# --------------------------------------------------
+
+frame_number = 0
+
 while True:
+
     ret, frame = cap.read()
 
     if not ret:
         break
-        # --------------------------------------------------
-    # 1. Draw MediaPipe landmarks
-    # --------------------------------------------------
 
+    # Get landmarks for this frame
     frame_landmarks = results[frame_number]
 
     for hand_landmarks in frame_landmarks:
-      points = []
 
-      for i, landmark in enumerate(hand_landmarks):
-          x = int(landmark.x * width)
-          y = int(landmark.y * height)
-          points.append((x, y))
+        points = []
 
-          # Make thumb tip (4) and index tip (8) red
-          if i == 4 or i == 8:
-              cv2.circle(frame, (x, y), 7, (0, 0, 255), -1)
-          else:
-              cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)
+        for i, landmark in enumerate(hand_landmarks):
 
-      # Draw hand connections
-      for start, end in HAND_CONNECTIONS:
-          cv2.line(frame, points[start], points[end], (0, 255, 0), 2)
-    # --------------------------------------------------
-    # 1. Create blank area for the graph
-    # --------------------------------------------------
+            x = int(landmark.x * width)
+            y = int(landmark.y * height)
 
-    graph_area = np.ones(
-        (height, graph_width, 3),
-        dtype=np.uint8
-    ) * 255
+            points.append((x, y))
 
-    # --------------------------------------------------
-    # 2. Get the previous 120 frames & set graph settings
-    # --------------------------------------------------
+            # Thumb tip and index tip
+            if i == 4 or i == 8:
 
-    window_size = 120
+                cv2.circle(
+                    frame,
+                    (x, y),
+                    7,
+                    (0, 0, 255),
+                    -1
+                )
 
-    start = max(0, frame_number - window_size + 1)
-    end = frame_number + 1
+            else:
 
-    x_window = x_values[start:end]
-    y_window = y_values[start:end]
+                cv2.circle(
+                    frame,
+                    (x, y),
+                    5,
+                    (0, 255, 0),
+                    -1
+                )
 
-    left = 60
-    right = 20
-    top = 50
-    bottom = 50
-
-    plot_width = graph_width - left - right
-    plot_height = graph_height - top - bottom
-
-    # The X axis represents FRAME NUMBER.
-    # Always show exactly 120 frames when possible.
-    visible_start = max(0, frame_number - window_size + 1)
-    visible_end = visible_start + window_size - 1
-
-    # Y limits remain based on the data
-    y_min = np.min(y_values)
-    y_max = np.max(y_values)
-
-    y_range = y_max - y_min
-
-    if y_range == 0:
-        y_range = 1
-
-    y_min -= 0.05 * y_range
-    y_max += 0.05 * y_range
-
-
-
-    # --------------------------------------------------
-    # 3. Convert data coordinates -> pixel coordinates
-    # --------------------------------------------------
-
-    points = []
-
-    for i, y in enumerate(y_window):
-
-        # Actual frame number
-        frame_index = start + i
-
-        # Convert frame number to graph x-coordinate
-        px = int(
-            left +
-            (frame_index - visible_start) /
-            (visible_end - visible_start) *
-            plot_width
-        )
-
-        # Convert y value to graph y-coordinate
-        py = int(
-            top +
-            (y_max - y) /
-            (y_max - y_min) *
-            plot_height
-        )
-
-        points.append((px, py))
-
-    # --------------------------------------------------
-    # 4. Draw graph axes
-    # --------------------------------------------------
-
-    cv2.line(
-        graph_area,
-        (left, top),
-        (left, top + plot_height),
-        (0, 0, 0),
-        2
-    )
-
-    cv2.line(
-        graph_area,
-        (left, top + plot_height),
-        (left + plot_width, top + plot_height),
-        (0, 0, 0),
-        2
-    )
-
-    # --------------------------------------------------
-    # 5. Draw the line
-    # --------------------------------------------------
-
-    if len(points) >= 2:
-
-        for j in range(1, len(points)):
+        # Draw hand connections
+        for start, end in HAND_CONNECTIONS:
 
             cv2.line(
-                graph_area,
-                points[j - 1],
-                points[j],
-                (255, 0, 0),
+                frame,
+                points[start],
+                points[end],
+                (0, 255, 0),
                 2
             )
 
-    # --------------------------------------------------
-    # 6. Draw current point
-    # --------------------------------------------------
-
-    if len(points) > 0:
-
-        cv2.circle(
-            graph_area,
-            points[-1],
-            5,
-            (0, 0, 255),
-            -1
-        )
-
-    # --------------------------------------------------
-    # 7. Add labels
-    # --------------------------------------------------
-
-    cv2.putText(
-        graph_area,
-        "Distance Between Thumb and Index Finger",
-        (left, 30),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.7,
-        (0, 0, 0),
-        2
-    )
-
-    cv2.putText(
-        graph_area,
-        f"Frame: {frame_number}",
-        (left, height - 15),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.5,
-        (0, 0, 0),
-        1
-    )
-
-    # --------------------------------------------------
-    # 8. Combine video + graph
-    # --------------------------------------------------
-
-    combined = np.hstack((frame, graph_area))
-
-    out.write(combined)
+    # Write annotated frame
+    out.write(frame)
 
     frame_number += 1
 
+
+# --------------------------------------------------
+# 8. Clean up
+# --------------------------------------------------
+
 cap.release()
 out.release()
+
+
+# --------------------------------------------------
+# 9. Save movement data for Next.js
+# --------------------------------------------------
+
+data = {
+    "fps": fps,
+    "distances": distances
+}
+
+with open(
+    "../website/public/data/finger-tapping.json",
+    "w"
+) as f:
+
+    json.dump(data, f)
+
+
+print("Annotated video saved!")
+print(f"Output: {output_path}")
+print("Movement data saved!")
