@@ -10,7 +10,16 @@ const STAGES = [
   "Counting taps",
 ] as const;
 
-const ANALYSIS_MS = 6500;
+// Uneven on purpose, so the pass does not tick like a metronome.
+// About 6.5 seconds altogether.
+const STAGE_MS = [900, 2400, 1900, 1300] as const;
+
+const ANALYSIS_MS = STAGE_MS.reduce((sum, ms) => sum + ms, 0);
+
+const STAGE_ENDS = STAGE_MS.reduce<number[]>((ends, ms) => {
+  ends.push((ends.at(-1) ?? 0) + ms);
+  return ends;
+}, []);
 
 const formatBytes = (bytes: number) => {
   if (bytes < 1000) return `${bytes} bytes`;
@@ -80,10 +89,9 @@ export default function UploadPage() {
     setFile(next);
   };
 
-  const activeStage = Math.min(
-    STAGES.length - 1,
-    Math.floor(progress * STAGES.length)
-  );
+  const elapsed = progress * ANALYSIS_MS;
+  const stageAt = STAGE_ENDS.findIndex((end) => elapsed < end);
+  const activeStage = stageAt === -1 ? STAGES.length - 1 : stageAt;
 
   return (
     <main className="min-h-screen bg-paper text-ink">
