@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Plain-node test scripts that verify the tap counter against the
+    // generated data files use require() on purpose.
+    "app/tap-counter-tests.cjs",
   ]),
 ]);
 
