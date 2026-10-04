@@ -733,13 +733,13 @@ function MovementGraph({
             y1={yForDistance(tick)}
             x2={width - padding.right}
             y2={yForDistance(tick)}
-            stroke="#e6dfd4"
+            stroke="#e4e0f0"
           />
           <text
             x={padding.left - 14}
             y={yForDistance(tick) + 4}
             textAnchor="end"
-            fill="#3a342c"
+            fill="#3d3a4a"
             fontSize="14"
             fontWeight="600"
             style={{ userSelect: "none" }}
@@ -754,13 +754,13 @@ function MovementGraph({
         y1={axisY}
         x2={width - padding.right}
         y2={axisY}
-        stroke="#cfc6b8"
+        stroke="#d0cadf"
       />
 
       <polyline
         points={points.join(" ")}
         fill="none"
-        stroke="#1c1915"
+        stroke="#1c1b24"
         strokeWidth="2.25"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -772,15 +772,15 @@ function MovementGraph({
             cx={xForFrame(tap.frame)}
             cy={yForDistance(distances[tap.frame] ?? 0)}
             r="3.5"
-            fill="#1c1915"
-            stroke="#faf7f2"
+            fill="#1c1b24"
+            stroke="#fcfbfe"
             strokeWidth="1"
           />
           <text
             x={xForFrame(tap.frame)}
             y={axisY + 20}
             textAnchor="middle"
-            fill="#3a342c"
+            fill="#3d3a4a"
             fontSize="13"
             fontWeight="600"
             style={{ userSelect: "none" }}
@@ -795,7 +795,7 @@ function MovementGraph({
         y1={padding.top}
         x2={currentX}
         y2={axisY}
-        stroke="#9f2d2d"
+        stroke="#2b88c7"
         strokeWidth={isDragging ? 2 : 1.25}
       />
 
@@ -803,15 +803,15 @@ function MovementGraph({
         cx={currentX}
         cy={currentY}
         r={isDragging ? 7 : 5}
-        fill="#9f2d2d"
-        stroke="#faf7f2"
+        fill="#2b88c7"
+        stroke="#fcfbfe"
         strokeWidth="2"
       />
 
       <text
         x={padding.left}
         y={height - 18}
-        fill="#3a342c"
+        fill="#3d3a4a"
         fontSize="14"
         fontWeight="600"
         style={{ userSelect: "none" }}
@@ -823,7 +823,7 @@ function MovementGraph({
         x={padding.left + graphWidth / 2}
         y={height - 18}
         textAnchor="middle"
-        fill="#3a342c"
+        fill="#3d3a4a"
         fontSize="14"
         fontWeight="600"
         style={{ userSelect: "none" }}
@@ -835,7 +835,7 @@ function MovementGraph({
         x={width - padding.right}
         y={height - 18}
         textAnchor="end"
-        fill="#3a342c"
+        fill="#3d3a4a"
         fontSize="14"
         fontWeight="600"
         style={{ userSelect: "none" }}
@@ -847,7 +847,7 @@ function MovementGraph({
         x={timeLabelX}
         y={padding.top - 12}
         textAnchor="middle"
-        fill="#1c1915"
+        fill="#1c1b24"
         fontSize="14"
         fontWeight="600"
         style={{ userSelect: "none" }}
@@ -860,7 +860,7 @@ function MovementGraph({
         y={height / 2}
         textAnchor="middle"
         transform={`rotate(-90 16 ${height / 2})`}
-        fill="#3a342c"
+        fill="#3d3a4a"
         fontSize="13"
         fontWeight="600"
         style={{ userSelect: "none" }}
