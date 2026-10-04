@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  countTapsUpToFrame,
+  normalizeTapFrames,
+} from "./tap-counter";
 
 type MovementData = {
   fps: number;
@@ -11,15 +15,26 @@ export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const [data, setData] = useState<MovementData | null>(null);
+  const [tapFrames, setTapFrames] = useState<number[] | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [dragWindowStart, setDragWindowStart] = useState<number | null>(null);
 
-  // Load movement data
+  // Load movement data and detected tap peaks
   useEffect(() => {
-    fetch("/data/finger-tapping.json")
-      .then((response) => response.json())
-      .then((json) => setData(json));
+    const loadMovement = fetch("/data/finger-tapping.json").then(
+      (response) => response.json()
+    );
+
+    const loadTapFrames = fetch("/data/finger-tapping-peaks.json").then(
+      (response) => response.json()
+    );
+
+    Promise.all([loadMovement, loadTapFrames])
+      .then(([movement, peaks]) => {
+        setData(movement);
+        setTapFrames(peaks);
+      });
   }, []);
 
   // Update graph whenever video moves
@@ -231,6 +246,17 @@ export default function Home() {
   const currentDistance =
     data?.distances[currentFrame] ?? 0;
 
+  // The tap count is a pure function of the current frame, so scrubbing
+  // back on the graph winds the counter down as well.
+  const sortedTapFrames = tapFrames
+    ? normalizeTapFrames(tapFrames, data?.distances ?? [])
+    : [];
+
+  const currentTaps = countTapsUpToFrame(
+    sortedTapFrames,
+    currentFrame
+  );
+
   return (
     <main className="min-h-screen bg-[#fafaff] px-8 py-12 text-[#26165f]">
       
@@ -307,7 +333,7 @@ export default function Home() {
 
           <Metric
             label="Taps"
-            value="31"
+            value={String(currentTaps)}
           />
 
           <Metric
