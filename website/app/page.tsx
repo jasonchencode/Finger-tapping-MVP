@@ -18,6 +18,57 @@ const WINDOW_FRAMES = 120;
 // Longest trailing span the frequency metric averages over.
 const FREQUENCY_WINDOW_SECONDS = 5;
 
+// Graph geometry shared by the SVG rendering and the pointer mapping.
+const GRAPH_WIDTH = 800;
+const GRAPH_HEIGHT = 350;
+
+const GRAPH_PADDING = {
+  left: 60,
+  right: 20,
+  top: 30,
+  bottom: 45,
+};
+
+// One visible-frame window shared by the graph display and the click-to-seek
+// mapping. The window slides with the playhead and clamps identically at
+// both edges of the video.
+const getVisibleFrameWindow = (
+  centerFrame: number,
+  totalFrames: number
+) => {
+  const maxStartFrame = Math.max(
+    0,
+    totalFrames - WINDOW_FRAMES
+  );
+
+  const startFrame = Math.max(
+    0,
+    Math.min(
+      centerFrame - Math.floor(WINDOW_FRAMES / 2),
+      maxStartFrame
+    )
+  );
+
+  const endFrame = Math.min(
+    totalFrames - 1,
+    startFrame + WINDOW_FRAMES - 1
+  );
+
+  return { startFrame, endFrame };
+};
+
+// Displayed-frame lookup: the click position already rounds to the nearest
+// frame, so the played cursor always lands exactly on a drawn point.
+const getFrameAtTime = (
+  time: number,
+  fps: number,
+  totalFrames: number
+) =>
+  Math.max(
+    0,
+    Math.min(Math.round(time * fps), totalFrames - 1)
+  );
+
 export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -25,7 +76,7 @@ export default function Home() {
   const [tapFrames, setTapFrames] = useState<number[] | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const [dragWindowStart, setDragWindowStart] = useState<number | null>(null);
+  const [dragStartFrame, setDragStartFrame] = useState<number | null>(null);
 
   // Load movement data and detected tap peaks
   useEffect(() => {
@@ -90,7 +141,7 @@ export default function Home() {
   useEffect(() => {
     const handleGlobalPointerUp = () => {
       setIsDragging(false);
-      setDragWindowStart(null);
+      setDragStartFrame(null);
     };
 
     window.addEventListener("pointerup", handleGlobalPointerUp);
@@ -100,62 +151,64 @@ export default function Home() {
     };
   }, []);
 
+  // Maps a pointer position to a video time using the same visible window
+  // the graph is rendering right now, frozen while dragging. There is a
+  // single shared window formula, so the played cursor lands exactly under
+  // the clicked point.
   const getTimeFromGraphPosition = (
     clientX: number,
-    svg: SVGSVGElement,
-    windowStartOverride?: number
+    svg: SVGSVGElement
   ) => {
-    if (!videoRef.current) return null;
+    if (!videoRef.current || !data) return null;
 
-    const rect = svg.getBoundingClientRect();
-
-    const svgX =
-      ((clientX - rect.left) / rect.width) * 800;
-
-    const paddingLeft = 60;
-    const paddingRight = 20;
-    const graphWidth = 800 - paddingLeft - paddingRight;
-
-    // Keep mouse inside the actual graph area
-    const graphX = Math.max(
-      paddingLeft,
-      Math.min(paddingLeft + graphWidth, svgX)
-    );
-
-    const percentage =
-      (graphX - paddingLeft) / graphWidth;
-
-    const WINDOW_SECONDS = 5;
     const duration = videoRef.current.duration;
 
     if (!Number.isFinite(duration)) return null;
 
-    const maxStartTime = Math.max(
-      0,
-      duration - WINDOW_SECONDS
+    const rect = svg.getBoundingClientRect();
+
+    const svgX =
+      ((clientX - rect.left) / rect.width) * GRAPH_WIDTH;
+
+    const graphWidth =
+      GRAPH_WIDTH - GRAPH_PADDING.left - GRAPH_PADDING.right;
+
+    if (graphWidth <= 0) return null;
+
+    // Keep mouse inside the actual graph area
+    const graphX = Math.max(
+      GRAPH_PADDING.left,
+      Math.min(
+        GRAPH_PADDING.left + graphWidth,
+        svgX
+      )
     );
 
-    // Use frozen window while dragging
-    const windowStart =
-      windowStartOverride !== undefined
-        ? windowStartOverride
-        : Math.max(
-            0,
-            Math.min(
-              currentTime - WINDOW_SECONDS,
-              maxStartTime
-            )
-          );
+    const percentage =
+      (graphX - GRAPH_PADDING.left) / graphWidth;
 
-    const windowEnd = Math.min(
-      duration,
-      windowStart + WINDOW_SECONDS
+    const centerFrame = isDragging && dragStartFrame !== null
+      ? dragStartFrame + Math.floor(WINDOW_FRAMES / 2)
+      : getFrameAtTime(
+          currentTime,
+          data.fps,
+          data.distances.length
+        );
+
+    const { startFrame, endFrame } =
+      getVisibleFrameWindow(
+        centerFrame,
+        data.distances.length
+      );
+
+    // Round to the nearest displayed frame so the red cursor sits exactly
+    // under the pointer.
+    const clickedFrame = Math.round(
+      startFrame +
+        percentage * (endFrame - startFrame)
     );
 
-    return (
-      windowStart +
-      percentage * (windowEnd - windowStart)
-    );
+    return clickedFrame / data.fps;
   };
 
   const handleGraphPointerDown = (
@@ -165,7 +218,6 @@ export default function Home() {
 
     svg.setPointerCapture(event.pointerId);
 
-    const WINDOW_SECONDS = 5;
     const duration = videoRef.current?.duration;
 
     if (!duration || !Number.isFinite(duration)) return;
@@ -181,26 +233,23 @@ export default function Home() {
       videoRef.current.pause();
     }
 
-    const maxStartTime = Math.max(
-      0,
-      duration - WINDOW_SECONDS
+    // Freeze the graph window exactly as it is displayed when the drag
+    // starts, so the curve stays still under the cursor while scrubbing.
+    const { startFrame } = getVisibleFrameWindow(
+      getFrameAtTime(
+        currentTime,
+        data?.fps ?? 1,
+        data?.distances.length ?? 0
+      ),
+      data?.distances.length ?? 0
     );
 
-    const windowStart = Math.max(
-      0,
-      Math.min(
-        currentTime - WINDOW_SECONDS / 2,
-        maxStartTime
-      )
-    );
-
-    setDragWindowStart(windowStart);
+    setDragStartFrame(startFrame);
     setIsDragging(true);
 
     const time = getTimeFromGraphPosition(
       event.clientX,
-      svg,
-      windowStart
+      svg
     );
 
     if (time !== null && videoRef.current) {
@@ -212,14 +261,13 @@ export default function Home() {
   const handleGraphPointerMove = (
     event: React.PointerEvent<SVGSVGElement>
   ) => {
-    if (!isDragging || dragWindowStart === null) return;
+    if (!isDragging || dragStartFrame === null) return;
 
     const svg = event.currentTarget;
 
     const time = getTimeFromGraphPosition(
       event.clientX,
-      svg,
-      dragWindowStart
+      svg
     );
 
     if (time !== null && videoRef.current) {
@@ -237,8 +285,9 @@ export default function Home() {
       svg.releasePointerCapture(event.pointerId);
     }
 
+    // Release the frozen window and re-center on the playhead
     setIsDragging(false);
-    setDragWindowStart(null);
+    setDragStartFrame(null);
 
     if (videoRef.current) {
       setCurrentTime(videoRef.current.currentTime);
@@ -247,7 +296,11 @@ export default function Home() {
 
 
   const currentFrame = data
-    ? Math.floor(currentTime * data.fps)
+    ? getFrameAtTime(
+        currentTime,
+        data.fps,
+        data.distances.length
+      )
     : 0;
 
   const currentDistance =
@@ -287,25 +340,19 @@ export default function Home() {
     windowSeconds > 0 ? trailingWindowTaps / windowSeconds : 0;
 
   // Same sliding window the graph displays, so the amplitude matches what
-  // is on screen.
-  const maxStartFrame = data
-    ? Math.max(0, data.distances.length - WINDOW_FRAMES)
-    : 0;
+  // is on screen. Frozen while dragging, exactly like the graph.
+  const activeCenterFrame =
+    isDragging && dragStartFrame !== null
+      ? dragStartFrame + Math.floor(WINDOW_FRAMES / 2)
+      : currentFrame;
 
-  const visibleStartFrame = Math.max(
-    0,
-    Math.min(
-      currentFrame - Math.floor(WINDOW_FRAMES / 2),
-      maxStartFrame
-    )
-  );
-
-  const visibleEndFrame = data
-    ? Math.min(
-        data.distances.length - 1,
-        visibleStartFrame + WINDOW_FRAMES - 1
-      )
-    : 0;
+  const { startFrame: visibleStartFrame, endFrame: visibleEndFrame } =
+    data
+      ? getVisibleFrameWindow(
+          activeCenterFrame,
+          data.distances.length
+        )
+      : { startFrame: 0, endFrame: 0 };
 
   const visibleTapHeights = sortedTapFrames
     .filter(
@@ -387,6 +434,7 @@ export default function Home() {
                   tapFrames={sortedTapFrames}
                   currentTime={currentTime}
                   isDragging={isDragging}
+                  dragStartFrame={dragStartFrame}
                   onPointerDown={handleGraphPointerDown}
                   onPointerMove={handleGraphPointerMove}
                   onPointerUp={handleGraphPointerUp}
@@ -480,6 +528,7 @@ function MovementGraph({
     tapFrames,
     currentTime,
     isDragging,
+    dragStartFrame,
     onPointerDown,
     onPointerMove,
     onPointerUp,
@@ -489,6 +538,7 @@ function MovementGraph({
     tapFrames: number[];
     currentTime: number;
     isDragging: boolean;
+    dragStartFrame: number | null;
     onPointerDown: (
       event: React.PointerEvent<SVGSVGElement>
     ) => void;
@@ -499,15 +549,10 @@ function MovementGraph({
       event: React.PointerEvent<SVGSVGElement>
     ) => void;
   }) {
-  const width = 800;
-  const height = 350;
+  const width = GRAPH_WIDTH;
+  const height = GRAPH_HEIGHT;
 
-  const padding = {
-    left: 60,
-    right: 20,
-    top: 30,
-    bottom: 45,
-  };
+  const padding = GRAPH_PADDING;
 
   const graphWidth =
     width - padding.left - padding.right;
@@ -516,32 +561,24 @@ function MovementGraph({
     height - padding.top - padding.bottom;
 
   // Current video frame
-  const currentFrame = Math.min(
-    Math.floor(currentTime * fps),
-    distances.length - 1
+  const currentFrame = getFrameAtTime(
+    currentTime,
+    fps,
+    distances.length
   );
 
-  // Match the Python graph:
-  // 120 frames are visible at once.
-  const halfWindow = Math.floor(WINDOW_FRAMES / 2);
+  // The window is frozen at the drag start while scrubbing and re-centers
+  // on the playhead once the pointer is released.
+  const centerFrame =
+    isDragging && dragStartFrame !== null
+      ? dragStartFrame + Math.floor(WINDOW_FRAMES / 2)
+      : currentFrame;
 
-  const maxStartFrame = Math.max(
-    0,
-    distances.length - WINDOW_FRAMES
-  );
-
-  const startFrame = Math.max(
-    0,
-    Math.min(
-      currentFrame - halfWindow,
-      maxStartFrame
-    )
-  );
-
-  const endFrame = Math.min(
-    distances.length - 1,
-    startFrame + WINDOW_FRAMES - 1
-  );
+  const { startFrame, endFrame } =
+    getVisibleFrameWindow(
+      centerFrame,
+      distances.length
+    );
 
   const visibleDistances = distances.slice(
     startFrame,
