@@ -170,7 +170,7 @@ export default function UploadPage() {
                 Drop a video here
               </span>
               <span className="mt-2 block text-sm text-ink-soft">
-                or choose one from Finder
+                or choose a file
               </span>
             </label>
 
