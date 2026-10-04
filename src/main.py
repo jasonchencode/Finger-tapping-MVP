@@ -242,3 +242,8 @@ with open(
 print("Annotated video saved!")
 print(f"Output: {output_path}")
 print("Movement data saved!")
+print("Overall amplitude:", max(distances) - min(distances))
+print("Min:", min(distances))
+print("Max:", max(distances))
+print("Range:", max(distances) - min(distances))
+print("Average:", sum(distances) / len(distances))

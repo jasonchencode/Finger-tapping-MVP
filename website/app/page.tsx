@@ -193,17 +193,17 @@ const handleGraphClick = (
 
           <Metric
             label="Taps"
-            value="42"
+            value="31"
           />
 
           <Metric
             label="Frequency"
-            value="4.8 Hz"
+            value="1.55 Hz"
           />
 
           <Metric
             label="Average Amplitude"
-            value="0.61"
+            value="0.36"
           />
 
         </div>
@@ -304,17 +304,10 @@ function MovementGraph({
     return null;
   }
 
-  // Use the ENTIRE dataset for Y-axis scaling.
-  // This matches your Python graph.
-  const min = Math.min(...distances);
-  const max = Math.max(...distances);
-
-  const range = max - min || 1;
-
-  const yMin = min - range * 0.05;
-  const yMax = max + range * 0.05;
-
-  const yRange = yMax - yMin;
+    // Fixed Y-axis range
+    const yMin = 0;
+    const yMax = 0.5;
+    const yRange = yMax - yMin;
 
   // Convert data points into SVG coordinates
   const points = visibleDistances.map(
@@ -357,14 +350,40 @@ function MovementGraph({
       className="w-full cursor-crosshair"
       onClick={onClick}
     >
-      {/* Y axis */}
-      <line
-        x1={padding.left}
-        y1={padding.top}
-        x2={padding.left}
-        y2={height - padding.bottom}
-        stroke="#d9d6e8"
-      />
+      {/* Y axis labels */}
+
+      {/* 0.5 */}
+      <text
+        x={padding.left - 10}
+        y={padding.top + 5}
+        textAnchor="end"
+        fill="#77738c"
+        fontSize="13"
+      >
+        0.5
+      </text>
+
+      {/* 0.25 */}
+      <text
+        x={padding.left - 10}
+        y={padding.top + graphHeight / 2 + 5}
+        textAnchor="end"
+        fill="#77738c"
+        fontSize="13"
+      >
+        0.25
+      </text>
+
+      {/* 0 */}
+      <text
+        x={padding.left - 10}
+        y={height - padding.bottom + 5}
+        textAnchor="end"
+        fill="#77738c"
+        fontSize="13"
+      >
+        0
+      </text>
 
       {/* X axis */}
       <line
